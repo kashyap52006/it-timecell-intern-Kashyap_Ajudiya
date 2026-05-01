@@ -233,31 +233,61 @@ The solution follows these steps:
 
 ## Thought Process
 
-* Focused on breaking the problem into small steps
-* Used simple mathematical formulas for clarity
-* Ensured calculations are easy to understand and debug
-* Designed logic to be clean and modular
+* Used object-oriented design with `Asset` and `Portfolio` classes to keep the code modular and close to real-world financial modeling
+* Every input is validated at construction time — type checks, range checks, and aggregate constraints (allocation sum = 100%) — so invalid portfolios can never be created
+* Dynamic operations (`add_asset`, `remove_asset`, `update_asset`) re-run validations after every change, with automatic rollback on failure to keep the portfolio in a consistent state
+* Kept exactly 5 core methods as required, with a `severity` parameter to support both full and moderate crash scenarios without duplicating logic
+* Focused on clear, readable formulas that map directly to financial concepts, making the code easy to walk through in an interview
 
 ---
 
 ## Edge Cases Handled
 
-* Zero monthly expenses (infinite runway)
-* Missing or incorrect allocation values
-* Extremely high crash percentages
-* Empty asset list
+* Total allocation not equal to 100% (raises error with current total)
+* Negative allocation percentages
+* Crash percentage outside the -100 to 0 range
+* Zero or negative monthly expenses (prevents division issues)
+* Zero or negative portfolio value
+* Empty asset list (portfolio must have at least one asset)
+* Duplicate asset names (prints a warning)
+* Invalid data types (e.g., string passed instead of float)
+* Removing the last asset from a portfolio (prevented with error)
+* Failed attribute updates are rolled back to maintain consistency
 
 ---
 
 ## Example Output
 
 ```
-Post Crash Value: 5,700,000 INR
-Runway: 57 months
-Ruin Test: PASS
-Highest Risk Asset: BTC
-```
+==============================================================
+        PORTFOLIO RISK CALCULATOR — CRASH ANALYSIS
+==============================================================
+  Portfolio Value : ₹ 10,000,000.00
+  Monthly Expenses: ₹     80,000.00
+--------------------------------------------------------------
 
+  📊 Asset Allocation
+
+  BTC      │ ████████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░ │  30.0%
+  NIFTY50  │ ████████████████░░░░░░░░░░░░░░░░░░░░░░░░ │  40.0%
+  GOLD     │ ████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ │  20.0%
+  CASH     │ ████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ │  10.0%
+
+==============================================================
+  CRASH SCENARIO COMPARISON
+==============================================================
+  Metric                      │ Full Crash (100%)│ Moderate Crash (50%)
+  ──────────────────────────────────────────────────────────
+  Post-Crash Value (₹)        │ ₹    5,700,000 │ ₹    7,850,000
+  Runway (months)             │           71.2 │           98.1
+  Ruin Test                   │           PASS │           PASS
+  ──────────────────────────────────────────────────────────
+
+  🔴 Largest Risk Asset : BTC (score = 30.0% × |-80.0%| = 2400)
+  ⚠️  Concentration Risk : No
+
+==============================================================
+```
 ---
 
 ## Key Learnings
