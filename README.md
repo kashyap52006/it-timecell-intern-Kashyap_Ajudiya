@@ -699,3 +699,120 @@ task3.py
 
 ---
 
+## Task 4: Portfolio Correlation Risk Analyzer
+
+LLM Used: Gemini API
+Prompt Source: Generated using ChatGPT
+
+My Idea
+
+Build a simple portfolio risk tool that looks beyond individual prices and asks a more important question: how are the assets behaving together?
+
+If two or more assets keep moving in the same direction, then the portfolio is not truly diversified, even if the assets look different on the surface. That is the main idea behind this task. Instead of only tracking whether prices go up or down, the script measures correlation over time to see whether the portfolio is quietly becoming more dependent on a single market mood.
+
+The tool also checks whether this relationship is getting stronger recently compared to the longer past. If short-term correlation is rising, it can mean diversification is weakening and hidden beta is increasing. In simple terms, the portfolio may be starting to behave like one big risk block instead of a group of separate assets.
+
+The final goal is to turn this into something a non-expert can understand quickly: whether the portfolio is calm, whether risk is building, and whether actions like rebalancing, hedging, or holding more cash might make sense.
+
+---
+
+### Objective
+
+To analyze correlation risk in a portfolio, detect weakening diversification, forecast whether correlations may stay high, and show a simple market stress signal using VIX.
+
+---
+
+### Approach
+
+The solution follows these steps:
+
+1. **Fetch Market Data**
+
+  * Download historical prices using `yfinance`
+  * Handle missing values, invalid tickers, and misaligned dates
+
+2. **Convert Prices to Returns**
+
+  * Daily returns are calculated from prices
+  * Returns are used instead of raw prices because correlation analysis works better on returns
+
+3. **Measure Correlation**
+
+  * Compute rolling correlation over a 30-day window
+  * Track how correlation changes over time instead of assuming it is constant
+
+4. **Detect Correlation Drift**
+
+  * Compare short-term and long-term average correlation
+  * If short-term correlation is higher, diversification may be weakening
+
+5. **Score Diversification**
+
+  * Use mean absolute off-diagonal correlation
+  * Convert it into a simple 0–100 diversification score
+
+6. **Forecast Correlation**
+
+  * Use a simple AR(1) time-series model
+  * Predict whether correlation is likely to stay high
+
+7. **Check Market Stress**
+
+  * Use VIX as a market fear / stress indicator
+  * Classify it as LOW, MODERATE, or HIGH
+
+8. **Ask Gemini for a Simple Explanation**
+
+  * Send the computed metrics to Gemini
+  * Ask for a short, human-readable summary in JSON format
+  * If Gemini fails, the script still shows the raw analysis metrics
+
+---
+
+### Thought Process
+
+* Focused on correlation instead of just price movement because diversification risk is about how assets behave together
+* Used rolling windows so the analysis shows changes over time instead of a single static correlation value
+* Kept the forecasting model simple with AR(1) so the result is easy to understand and explain
+* Added VIX because market stress often increases correlation across assets
+* Used a strict JSON prompt so the LLM response can be parsed reliably
+* Kept the output human-friendly, so a non-technical person can understand whether the portfolio is becoming riskier
+
+---
+
+### Example Output
+
+```
+⚠  Gemini insight skipped: Gemini request failed. Try again or check the model/key.
+
+========================================================================
+PORTFOLIO CORRELATION RISK ANALYZER
+========================================================================
+
+Raw Data
+------------------------------------------------------------------------
+Tickers: NIFTY, BTC, GOLD
+Current correlation: 2.35%
+Drift: -1.32%
+Short-term average: 1.25%
+Long-term average: 2.56%
+AR(1) forecast: 2.37%
+Diversification score: 99.94 / 100
+VIX: 16.99 (MODERATE - Moderate market stress)
+
+LLM Insights
+------------------------------------------------------------------------
+Gemini insights unavailable.
+```
+
+---
+
+### Key Learnings
+
+* Correlation is often a better risk signal than price alone
+* Rolling analysis helps detect changing relationships between assets
+* A simple forecasting model can be enough when the goal is clarity, not complexity
+* LLMs are useful for turning numeric risk metrics into plain English explanations
+* Good fallback behavior matters because APIs can fail even when the analysis logic is correct
+
+
