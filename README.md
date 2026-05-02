@@ -321,13 +321,13 @@ Build a robust Python script that fetches **live market data for 3+ assets** and
 * Fetch prices for at least 3 assets (1 stock/index + 1 cryptocurrency minimum)
 * Use only free public APIs (no paid keys)
 * Print a clean, formatted table with: asset name, current price, currency, timestamp
-* Handle all errors gracefully — if one asset fails, log the error and continue
+* Handle all errors gracefully, if one asset fails, log the error and continue
 
 **Error Handling & Data Validation:**
 * API request failures (timeouts, connection errors)
 * Invalid or empty API responses, rate limits
 * Missing fields, unexpected data formats, incorrect types
-* Fault tolerance — never crash the script
+* Fault tolerance, never crash the script
 
 **Code Structure:**
 * Modular: separate functions for fetching, parsing/validation, and display
@@ -337,7 +337,7 @@ Build a robust Python script that fetches **live market data for 3+ assets** and
 
 ### Objective
 
-To fetch live market prices from free public APIs and display them in a clean, reliable terminal table — handling network failures and bad data gracefully.
+To fetch live market prices from free public APIs and display them in a clean, reliable terminal table, handling network failures and bad data gracefully.
 
 ---
 
@@ -348,7 +348,7 @@ To fetch live market prices from free public APIs and display them in a clean, r
 | CoinGecko | BTC, ETH (crypto) | No |
 | Yahoo Finance (v8 chart) | NIFTY 50, GOLD (stocks/commodities) | No |
 
-Both accessed via Python's built-in `urllib` — no external libraries needed.
+Both accessed via Python's built-in `urllib`, no external libraries needed.
 
 ---
 
@@ -566,9 +566,9 @@ The solution follows these steps:
 
 * Used a modular design with five clearly separated functions (`get_portfolio_input`, `build_prompt`, `call_gemini_api`, `parse_response`, `display_output`) following single-responsibility principle
 * Added a separate yfinance price-fetch step so current prices are factual and not guessed by the LLM
-* The prompt is carefully engineered with role definition, tone instructions, task breakdown, and strict JSON schema — this ensures consistent, parseable responses from the LLM
+* The prompt is carefully engineered with role definition, tone instructions, task breakdown, and strict JSON schema, this ensures consistent, parseable responses from the LLM
 * Tone is configurable (beginner/experienced/expert) to adapt explanations for different audiences without changing the core logic
-* JSON extraction logic handles common LLM quirks: markdown code fences, preamble text, and boundary detection — making parsing robust
+* JSON extraction logic handles common LLM quirks: markdown code fences, preamble text, and boundary detection, making parsing robust
 * Self-critique feature sends the first response back to the LLM as a second "auditor" role, catching potential inaccuracies without any human intervention
 * API key is read from environment variables first (`GEMINI_API_KEY` / `GOOGLE_API_KEY`), falling back to a built-in key so the demo works out of the box
 * Every error path (input validation, API failures, parsing failures) produces clear, actionable error messages and exits cleanly
