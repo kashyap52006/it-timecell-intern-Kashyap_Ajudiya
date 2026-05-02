@@ -58,7 +58,6 @@ class ResponseParsingError(Exception):
 VALID_TONES = ("beginner", "experienced", "expert")
 
 DEFAULT_MODEL = "gemini-1.5-flash"
-DEFAULT_GEMINI_API_KEY = "AIzaSyCRuk3AtGgdITc1xiJnmWw7BcvI2iZ8t98"
 
 REQUIRED_FIELDS = {"summary", "good_practice", "improvement_suggestion",
                    "verdict", "asset_analysis"}
@@ -439,12 +438,10 @@ def configure_api(api_key: str | None = None) -> str:
         api_key
         or os.environ.get("GEMINI_API_KEY")
         or os.environ.get("GOOGLE_API_KEY")
-        or DEFAULT_GEMINI_API_KEY
     )
     if not key:
         raise APIError(
-            "No API key found. Set GEMINI_API_KEY or GOOGLE_API_KEY "
-            "or pass it explicitly."
+            "No API key found. Set GEMINI_API_KEY or GOOGLE_API_KEY."
         )
     return key
 

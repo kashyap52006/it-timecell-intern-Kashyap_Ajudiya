@@ -6,6 +6,19 @@ This project is part of the Timecell internship assessment.
 
 ---
 
+## Local Secret Setup
+
+For local runs, create a `.env` file with your API keys and keep it out of version control.
+
+```bash
+GEMINI_API_KEY=your_key_here
+GOOGLE_API_KEY=your_key_here
+```
+
+The scripts read keys from environment variables at runtime, so the source code stays clean and the secrets stay local.
+
+---
+
 ## Task 1: Portfolio Risk Analysis
 
 LLM Used: Claude Opus 4.6
