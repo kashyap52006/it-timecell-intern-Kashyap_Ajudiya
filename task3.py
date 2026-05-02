@@ -1,12 +1,12 @@
 """
 Task 03: AI-Powered Portfolio Explainer
 ========================================
-A production-quality script that uses OpenAI ChatGPT API to generate
+A production-quality script that uses the Gemini API to generate
 plain-English explanations of portfolio risk, structured insights,
 and actionable suggestions.
 
 Python  : 3.10+
-API     : OpenAI ChatGPT
+API     : Google Gemini
 """
 
 from __future__ import annotations
@@ -17,23 +17,22 @@ import re
 import sys
 import time
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+
 
 # ──────────────────────────────────────────────────────────────
-#  Third-party import (openai)
+#  Third-party imports
 # ──────────────────────────────────────────────────────────────
 
 try:
-    from openai import OpenAI
+    import yfinance as yf
 except ImportError:
     print(
-        "❌  Missing dependency: openai\n"
-        "   Install it with:  pip install openai"
+        "❌  Missing dependency: yfinance\n"
+        "   Install it with:  pip install yfinance"
     )
     sys.exit(1)
-
-
-# Global client for API calls
-client = None
 
 
 # ──────────────────────────────────────────────────────────────
@@ -58,12 +57,23 @@ class ResponseParsingError(Exception):
 
 VALID_TONES = ("beginner", "experienced", "expert")
 
-DEFAULT_MODEL = "gpt-3.5-turbo"
+DEFAULT_MODEL = "gemini-1.5-flash"
+DEFAULT_GEMINI_API_KEY = "AIzaSyCRuk3AtGgdITc1xiJnmWw7BcvI2iZ8t98"
 
 REQUIRED_FIELDS = {"summary", "good_practice", "improvement_suggestion",
                    "verdict", "asset_analysis"}
 
 ASSET_FIELDS = {"name", "estimated_risk", "reason", "approx_price"}
+
+PRICE_ALIASES = {
+    "BTC": "BTC-USD",
+    "BITCOIN": "BTC-USD",
+    "NIFTY": "^NSEI",
+    "NIFTY50": "^NSEI",
+    "GOLD": "GC=F",
+    "XAU": "GC=F",
+    "CASH": None,
+}
 
 
 # ──────────────────────────────────────────────────────────────
@@ -207,11 +217,49 @@ def validate_portfolio(portfolio: dict[str, Any]) -> None:
         )
 
 
+def resolve_price_symbol(asset_name: str) -> str | None:
+    """Map a portfolio asset name to a Yahoo Finance ticker symbol."""
+    return PRICE_ALIASES.get(asset_name.strip().upper(), asset_name.strip().upper())
+
+
+def fetch_current_prices(portfolio: dict[str, Any]) -> dict[str, str]:
+    """Fetch current prices for each asset using yfinance."""
+    prices: dict[str, str] = {}
+
+    for asset in portfolio["assets"]:
+        name = asset["name"].strip().upper()
+        symbol = resolve_price_symbol(name)
+
+        if symbol is None:
+            prices[name] = "₹0.00 (cash equivalent)"
+            continue
+
+        try:
+            history = yf.Ticker(symbol).history(period="1d", interval="1d", auto_adjust=True)
+            if history.empty or "Close" not in history:
+                prices[name] = "N/A"
+                continue
+
+            current_price = float(history["Close"].dropna().iloc[-1])
+            currency = "USD" if symbol.endswith("-USD") or symbol == "GC=F" else "INR"
+            if symbol == "GC=F":
+                currency = "USD"
+            prices[name] = f"{current_price:,.2f} {currency}"
+        except Exception:
+            prices[name] = "N/A"
+
+    return prices
+
+
 # ──────────────────────────────────────────────────────────────
 #  2. Prompt Construction
 # ──────────────────────────────────────────────────────────────
 
-def build_prompt(portfolio: dict[str, Any], tone: str = "beginner") -> str:
+def build_prompt(
+    portfolio: dict[str, Any],
+    tone: str = "beginner",
+    price_map: dict[str, str] | None = None,
+) -> str:
     """
     Construct a carefully engineered prompt for the Gemini LLM.
 
@@ -246,10 +294,14 @@ def build_prompt(portfolio: dict[str, Any], tone: str = "beginner") -> str:
     }
 
     # ── Asset list formatting ─────────────────────────────────
-    asset_lines = "\n".join(
-        f"  - {a['name']}: {a['allocation_pct']}% allocation"
-        for a in portfolio["assets"]
-    )
+    asset_lines = []
+    for asset in portfolio["assets"]:
+        asset_name = asset["name"]
+        asset_price = (price_map or {}).get(asset_name.upper(), "N/A")
+        asset_lines.append(
+            f"  - {asset_name}: {asset['allocation_pct']}% allocation | current price: {asset_price}"
+        )
+    asset_lines_text = "\n".join(asset_lines)
 
     prompt = f"""You are an honest, highly experienced financial advisor with 20+ years of experience managing wealth for high-net-worth individuals.
 
@@ -257,10 +309,13 @@ TONE INSTRUCTIONS:
 {tone_instructions[tone]}
 
 TASK:
-Analyze the following investment portfolio allocation. You do NOT have exact prices or risk data — use your real-world financial knowledge to infer risk characteristics and approximate current prices.
+Analyze the following investment portfolio allocation.
+Use the provided current prices as factual data.
+Do NOT estimate or invent prices yourself.
+Focus only on portfolio risk, diversification, and plain-English explanation.
 
 PORTFOLIO:
-{asset_lines}
+{asset_lines_text}
 
 INSTRUCTIONS:
 1. Analyze the allocation percentages and what they imply about the investor's strategy.
@@ -270,7 +325,7 @@ INSTRUCTIONS:
    b) ONE thing the investor is doing well (be specific).
    c) ONE improvement suggestion with clear reasoning.
    d) A one-line verdict: exactly one of "Aggressive", "Balanced", or "Conservative".
-   e) Per-asset analysis with estimated risk level and approximate current price.
+    e) Per-asset analysis with estimated risk level and explanation based on the provided current price.
 
 CRITICAL OUTPUT FORMAT:
 You MUST return your response as STRICT, VALID JSON and NOTHING ELSE.
@@ -351,25 +406,47 @@ Return ONLY the JSON. No other text."""
 #  3. API Integration
 # ──────────────────────────────────────────────────────────────
 
-def configure_api(api_key: str | None = None) -> None:
+def _http_post_json(url: str, payload: dict[str, Any], timeout: int = 60) -> dict[str, Any]:
+    """Perform an HTTP POST request and return parsed JSON."""
+    data = json.dumps(payload).encode("utf-8")
+    request = Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlopen(request, timeout=timeout) as response:
+        body = response.read().decode("utf-8")
+    if not body.strip():
+        raise ValueError("Empty response body")
+    return json.loads(body)
+
+
+def configure_api(api_key: str | None = None) -> str:
     """
-    Configure the OpenAI API with the provided or environment key.
+    Resolve the Gemini API key from the explicit value, environment, or fallback.
 
     Args:
-        api_key: Optional explicit API key. Falls back to
-                 OPENAI_API_KEY environment variable.
+        api_key: Optional explicit API key. Falls back to Gemini env vars.
+
+    Returns:
+        The API key to use for Gemini.
 
     Raises:
         APIError: If no API key is available.
     """
-    global client
-    key = api_key or os.environ.get("OPENAI_API_KEY")
+    key = (
+        api_key
+        or os.environ.get("GEMINI_API_KEY")
+        or os.environ.get("GOOGLE_API_KEY")
+        or DEFAULT_GEMINI_API_KEY
+    )
     if not key:
         raise APIError(
-            "No API key found. Set OPENAI_API_KEY environment variable "
+            "No API key found. Set GEMINI_API_KEY or GOOGLE_API_KEY "
             "or pass it explicitly."
         )
-    client = OpenAI(api_key=key)
+    return key
 
 
 def call_gemini_api(
@@ -379,17 +456,16 @@ def call_gemini_api(
     timeout_seconds: int = 60,
 ) -> str:
     """
-    Send a prompt to the OpenAI API and return the raw text response.
+    Send a prompt to the Gemini API and return the raw text response.
 
     Implements retry logic with exponential backoff for transient
     failures (network errors, rate limits, timeouts).
 
     Args:
         prompt:          The complete prompt string.
-        model_name:      OpenAI model identifier.
+        model_name:      Gemini model identifier.
         max_retries:     Maximum number of retry attempts.
-        timeout_seconds: Request timeout (used for documentation;
-                         the SDK handles its own timeout).
+        timeout_seconds: Request timeout in seconds.
 
     Returns:
         Raw response text from the LLM.
@@ -397,23 +473,39 @@ def call_gemini_api(
     Raises:
         APIError: After all retries are exhausted or on fatal errors.
     """
+    api_key = configure_api()
+    url = (
+        "https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{model_name}:generateContent?key={api_key}"
+    )
+    payload = {
+        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": 0.3,
+            "maxOutputTokens": 2048,
+            "responseMimeType": "application/json",
+        },
+    }
+
     for attempt in range(1, max_retries + 1):
         try:
-            response = client.chat.completions.create(
-                model=model_name,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3,
-                max_tokens=2048,
-            )
+            response = _http_post_json(url, payload, timeout=timeout_seconds)
+            candidates = response.get("candidates") or []
+            if not candidates:
+                raise APIError("Gemini returned no candidates.")
 
-            text = response.choices[0].message.content
+            content = candidates[0].get("content", {})
+            parts = content.get("parts", [])
+            text = "".join(
+                part.get("text", "") for part in parts if isinstance(part, dict)
+            )
             if not text or not text.strip():
-                raise APIError("OpenAI returned an empty response.")
+                raise APIError("Gemini returned an empty response.")
 
             return text
 
-        except Exception as e:
-            error_msg = str(e).lower()
+        except Exception as exc:
+            error_msg = str(exc).lower()
 
             # Identify retryable errors
             is_retryable = any(
@@ -425,16 +517,16 @@ def call_gemini_api(
             if is_retryable and attempt < max_retries:
                 wait = 2 ** attempt  # Exponential backoff: 2s, 4s, 8s
                 print(f"  ⏳ Retry {attempt}/{max_retries} in {wait}s "
-                      f"({type(e).__name__})...")
+                      f"({type(exc).__name__})...")
                 time.sleep(wait)
                 continue
 
             raise APIError(
-                f"OpenAI API call failed after {attempt} attempt(s): {e}"
-            ) from e
+                f"Gemini API call failed after {attempt} attempt(s): {exc}"
+            ) from exc
 
     # Should never reach here, but just in case
-    raise APIError("OpenAI API call failed: max retries exhausted.")
+    raise APIError("Gemini API call failed: max retries exhausted.")
 
 
 # ──────────────────────────────────────────────────────────────
@@ -701,12 +793,8 @@ def main() -> None:
     # Ensure Unicode output on Windows terminals
     sys.stdout.reconfigure(encoding="utf-8")
 
-    # ── API Configuration ────────────────────────────────────
-    # Use the OPENAI_API_KEY environment variable only
-    api_key = os.environ.get("OPENAI_API_KEY")
-
     try:
-        configure_api(api_key)
+        configure_api()
     except APIError as e:
         print(f"\n  ❌ {e}")
         sys.exit(1)
@@ -740,6 +828,10 @@ def main() -> None:
         print(f"\n  ❌ Validation Error: {e}")
         sys.exit(1)
 
+    # ── Fetch current prices ────────────────────────────────
+    print("\n  ⏳ Fetching current prices from yfinance...")
+    price_map = fetch_current_prices(portfolio)
+
     # ── Tone Selection ───────────────────────────────────────
     print(f"\n  Select explanation tone:")
     print(f"    [1] Beginner   — simple, jargon-free")
@@ -758,7 +850,7 @@ def main() -> None:
 
     # ── Build Prompt ─────────────────────────────────────────
     print("\n  ⏳ Building prompt...")
-    prompt = build_prompt(portfolio, tone=tone)
+    prompt = build_prompt(portfolio, tone=tone, price_map=price_map)
 
     # ── Call Gemini API ──────────────────────────────────────
     print("  ⏳ Calling Gemini API...")
@@ -778,6 +870,12 @@ def main() -> None:
     except ResponseParsingError as e:
         print(f"\n  ❌ Parsing Error: {e}")
         sys.exit(1)
+
+    # Replace model-estimated prices with fetched prices so display stays factual.
+    for asset in parsed.get("asset_analysis", []):
+        asset_name = str(asset.get("name", "")).strip().upper()
+        if asset_name in price_map:
+            asset["approx_price"] = price_map[asset_name]
 
     # ── Display structured output ────────────────────────────
     display_output(parsed)
